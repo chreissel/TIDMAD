@@ -23,6 +23,7 @@ import os
 import math
 from torch.utils.data import dataset
 from network import PositionalUNet, FocalLoss1D, TransformerModel, AE, SimpleWaveNet, RNNSeq2Seq, S4DenoisModel, MixtureMSESpectralLoss
+import wandb
 
 # SQUID = h5py.File(SQUIDname,'r')
 # SG = h5py.File(SGname, 'r')
@@ -34,6 +35,8 @@ parser = argparse.ArgumentParser(description="Train time series denoising model 
 parser.add_argument('--data_dir', '-d', type=str, default=os.getcwd(), help='Directory where the training file is stored (default: current working directory).')
 parser.add_argument('--denoising_model', '-m', type=str, default='punet', help='Denoising model we would like to train [fcnet/punet/transformer] (Default: punet).')
 parser.add_argument('-w', '--weak', action='store_true', help='Train model on the weak version of the datasets.')
+parser.add_argument('--wandb', action='store_true', help='Enable Weights & Biases logging.')
+parser.add_argument('--wandb_project', type=str, default='TIDMAD', help='W&B project name (default: TIDMAD).')
 
 args = parser.parse_args()
 
@@ -41,6 +44,13 @@ args = parser.parse_args()
 input_size = 40000
 if args.denoising_model == "transformer":
     input_size = 20000 # transformer model requires additional GPU memories, so we reduce segment size by 50%
+
+if args.wandb:
+    wandb.init(project=args.wandb_project, config={
+        "model": args.denoising_model,
+        "input_size": input_size,
+        "weak": args.weak,
+    }, name=f"{args.denoising_model}_{date.today()}")
 sample_size = 10 #Randomly sample 20% of the time series to train model
 batchsize = 1
 output_size = input_size
@@ -74,6 +84,7 @@ For more detail, please read appendix A of the paper
 ifile_checkpoint = [0,4,10,15,20]
 # ifile_checkpoint = [0, 20]
 
+global_step = 0
 file_list = []
 rb, re = (0,20)
 if args.weak:
@@ -120,24 +131,26 @@ for ifile in range(rb,re):
     ABRAfile = h5py.File(os.path.join(args.data_dir,fname),'r')
 
     # Start training
-    train_loader = read_loader(ABRAfile)
-    np.random.shuffle(train_loader)
-    for i, batch in enumerate(train_loader):
+    all_data = read_loader(ABRAfile)
+    np.random.shuffle(all_data)
+    val_split = max(1, int(0.1 * len(all_data)))
+    val_data = all_data[-val_split:]
+    train_data = all_data[:-val_split]
+
+    model.train()
+    for i, batch in enumerate(train_data):
         inputarr, targetarr = (batch[:batchsize], batch[batchsize:])
         input_seq = torch.from_numpy(inputarr)
         target_seq = torch.from_numpy(targetarr)
         randind = np.random.randint(batchsize)
         input_seq = input_seq[randind].unsqueeze(0).float().to(DEVICE)
         target_seq = target_seq[randind].unsqueeze(0).float().to(DEVICE)
-            
-
 
         # Forward pass
         if not (args.denoising_model in ["fcnet", "s4denois"]):
             input_seq = input_seq.int()
             target_seq = target_seq.long()
-        
-    
+
         output_seq = model(input_seq)
         # Calculate the loss
         loss = criterion(output_seq, target_seq)
@@ -146,22 +159,36 @@ for ifile in range(rb,re):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        global_step += 1
 
-        # Print the loss every 100 batches
+        # Print and log the loss every 500 batches
         if i % 500 == 50:
             print('Epoch: {} | Batch: {} | Loss: {}'.format(ifile, i, loss.item()))
-        #     plt.plot(np.arange(input_size), input_seq[0].detach().cpu().numpy().flatten(), label = 'input',alpha=0.5, lw=1)
-        #     plt.plot(np.arange(input_size), target_seq[0].detach().cpu().numpy().flatten(), label = 'target',alpha=0.5, lw=1)
-        #     if args.denoising_model != "fcnet":
-        #         # If the model is not FCNet, the model accomplish a segmentation task with 256 classes per time step
-        #         output_seq = output_seq.argmax(dim=1)
-        #     plt.plot(np.arange(input_size), output_seq[0].detach().cpu().numpy().flatten(), label = 'output',alpha=0.5, lw=1)
-        #     plt.legend()
-        #     plt.savefig("denoise_sample.pdf",dpi=100)
-        #     plt.cla()
-        #     plt.clf()
-        #     plt.close()
-    del ABRAfile, train_loader
+            if args.wandb:
+                wandb.log({"train/loss": loss.item(), "file": ifile}, step=global_step)
+
+    # Compute validation loss at the end of each file
+    model.eval()
+    val_losses = []
+    with torch.no_grad():
+        for batch in val_data:
+            inputarr, targetarr = (batch[:batchsize], batch[batchsize:])
+            input_seq = torch.from_numpy(inputarr)
+            target_seq = torch.from_numpy(targetarr)
+            randind = np.random.randint(batchsize)
+            input_seq = input_seq[randind].unsqueeze(0).float().to(DEVICE)
+            target_seq = target_seq[randind].unsqueeze(0).float().to(DEVICE)
+            if not (args.denoising_model in ["fcnet", "s4denois"]):
+                input_seq = input_seq.int()
+                target_seq = target_seq.long()
+            output_seq = model(input_seq)
+            val_losses.append(criterion(output_seq, target_seq).item())
+    mean_val_loss = np.mean(val_losses)
+    print('Epoch: {} | Val Loss: {}'.format(ifile, mean_val_loss))
+    if args.wandb:
+        wandb.log({"val/loss": mean_val_loss, "file": ifile}, step=global_step)
+
+    del ABRAfile, all_data, train_data, val_data
     gc.collect()
 
     # Save and delete current model at the end of current checkpoint

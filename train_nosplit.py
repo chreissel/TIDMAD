@@ -25,6 +25,7 @@ from torch.utils.data import dataset
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 from network import PositionalUNet, FocalLoss1D, TransformerModel, AE, SimpleWaveNet, RNNSeq2Seq, S4DenoisModel, MixtureMSESpectralLoss
 import itertools
+import wandb
 # import psutil
 # import os
 
@@ -41,6 +42,8 @@ parser = argparse.ArgumentParser(description="Train time series denoising model 
 parser.add_argument('--data_dir', '-d', type=str, default="/home/klz/Data/TIDMAD/", help='Directory where the training file is stored (default: current working directory).')
 parser.add_argument('--denoising_model', '-m', type=str, default='punet', help='Denoising model we would like to train [fcnet/punet/transformer] (Default: punet).')
 parser.add_argument('-f', '--force', action='store_true', help='Directly proceed to download without asking the confirming question.')
+parser.add_argument('--wandb', action='store_true', help='Enable Weights & Biases logging.')
+parser.add_argument('--wandb_project', type=str, default='TIDMAD', help='W&B project name (default: TIDMAD).')
 
 args = parser.parse_args()
 
@@ -147,9 +150,14 @@ dataset_size = len(dataset)
 indices = list(range(dataset_size))
 
 np.random.shuffle(indices)
-train_sampler = SubsetRandomSampler(indices)
+val_split = max(1, int(0.1 * dataset_size))
+train_indices, val_indices = indices[val_split:], indices[:val_split]
+
+train_sampler = SubsetRandomSampler(train_indices)
+val_sampler = SubsetRandomSampler(val_indices)
 
 train_loader = DataLoader(dataset, batch_size=1, sampler=train_sampler, drop_last=True)
+val_loader = DataLoader(dataset, batch_size=1, sampler=val_sampler, drop_last=True)
 
 if args.denoising_model == "punet":
     model = PositionalUNet().to(DEVICE)
@@ -174,20 +182,24 @@ else:
 
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
 
+if args.wandb:
+    wandb.init(project=args.wandb_project, config={
+        "model": args.denoising_model,
+        "input_size": input_size,
+    }, name=f"{args.denoising_model}_{date.today()}")
+
+model.train()
 for i, batch in tqdm(enumerate(train_loader)):
     inputarr, targetarr = (batch[0][0], batch[1][0])
     input_seq = inputarr.float().to(DEVICE)
     target_seq = targetarr.float().to(DEVICE)
-        
+
     # Forward pass
     if not args.denoising_model in ["fcnet", "s4denois"]:
         input_seq = input_seq.int()
         target_seq = target_seq.long()
-    
 
     output_seq = model(input_seq)
-    # print(output_seq.shape,input_seq.shape)
-    # assert 0
     # Calculate the loss
     loss = criterion(output_seq, target_seq)
 
@@ -196,21 +208,31 @@ for i, batch in tqdm(enumerate(train_loader)):
     loss.backward()
     optimizer.step()
 
-    # Print the loss every 100 batches
+    # Print and log the loss every 50 batches
     if i % 50 == 0:
-        print('Epoch: {} | Batch: {} | Loss: {}'.format(ifile, i, loss.item()))
-        plt.plot(np.arange(input_size), input_seq[0].detach().cpu().numpy().flatten(), label = 'input',alpha=0.5, lw=1)
-        plt.plot(np.arange(input_size), target_seq[0].detach().cpu().numpy().flatten(), label = 'target',alpha=0.5, lw=1)
-        if args.denoising_model != "fcnet":
-            # If the model is not FCNet, the model accomplish a segmentation task with 256 classes per time step
-            output_seq = output_seq.argmax(dim=1)
-        plt.plot(np.arange(input_size), output_seq[0].detach().cpu().numpy().flatten(), label = 'output',alpha=0.5, lw=1)
-        plt.legend()
-        plt.savefig("denoise_sample.pdf",dpi=100)
-        plt.cla()
-        plt.clf()
-        plt.close()
-del train_loader
+        print('Batch: {} | Loss: {}'.format(i, loss.item()))
+        if args.wandb:
+            wandb.log({"train/loss": loss.item()}, step=i)
+
+    # Compute and log validation loss every 500 batches
+    if i % 500 == 0:
+        model.eval()
+        val_losses = []
+        with torch.no_grad():
+            for val_batch in val_loader:
+                val_input, val_target = (val_batch[0][0].float().to(DEVICE), val_batch[1][0].float().to(DEVICE))
+                if not args.denoising_model in ["fcnet", "s4denois"]:
+                    val_input = val_input.int()
+                    val_target = val_target.long()
+                val_output = model(val_input)
+                val_losses.append(criterion(val_output, val_target).item())
+        mean_val_loss = np.mean(val_losses)
+        print('Batch: {} | Val Loss: {}'.format(i, mean_val_loss))
+        if args.wandb:
+            wandb.log({"val/loss": mean_val_loss}, step=i)
+        model.train()
+
+del train_loader, val_loader
 gc.collect()
 
 if args.denoising_model == "punet":
