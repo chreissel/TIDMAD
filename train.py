@@ -127,12 +127,21 @@ for ifile in range(rb,re):
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
 
 
-    # Read file
-    try:
-        ABRAfile = h5py.File(os.path.join(args.data_dir,fname),'r')
-        all_data = read_loader(ABRAfile)
-    except OSError as e:
-        print(f'WARNING: Skipping {fname} due to read error: {e}')
+    # Read file (retry on transient network/IO errors)
+    fpath = os.path.join(args.data_dir, fname)
+    all_data = None
+    for attempt in range(5):
+        try:
+            ABRAfile = h5py.File(fpath, 'r')
+            all_data = read_loader(ABRAfile)
+            ABRAfile.close()
+            break
+        except OSError as e:
+            wait = 2 ** attempt
+            print(f'WARNING: {fname} read attempt {attempt+1}/5 failed ({e}), retrying in {wait}s...')
+            import time; time.sleep(wait)
+    if all_data is None:
+        print(f'ERROR: Skipping {fname} after 5 failed attempts.')
         continue
     np.random.shuffle(all_data)
     val_split = max(1, int(0.1 * len(all_data)))
