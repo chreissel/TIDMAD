@@ -128,10 +128,12 @@ for ifile in range(rb,re):
 
 
     # Read file
-    ABRAfile = h5py.File(os.path.join(args.data_dir,fname),'r')
-
-    # Start training
-    all_data = read_loader(ABRAfile)
+    try:
+        ABRAfile = h5py.File(os.path.join(args.data_dir,fname),'r')
+        all_data = read_loader(ABRAfile)
+    except OSError as e:
+        print(f'WARNING: Skipping {fname} due to read error: {e}')
+        continue
     np.random.shuffle(all_data)
     val_split = max(1, int(0.1 * len(all_data)))
     val_data = all_data[-val_split:]
