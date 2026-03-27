@@ -47,7 +47,7 @@ output_size = input_size
 ADC_CHANNEL = 256
 
 def read_loader(ABRAfile):
-    alltrain = np.array(ABRAfile['timeseries']['channel0001']['timeseries'])+128
+    alltrain = np.array(ABRAfile['timeseries']['channel0001']['timeseries'], dtype=np.int16)+128
     #change the max_index to length of science data TS series 
     max_index = 4010000000
     alltrain = alltrain[:max_index].reshape( -1, batchsize, input_size)
