@@ -6,7 +6,10 @@ from torch import nn, Tensor
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.utils.data import dataset
 import math
-import torchsnooper
+try:
+    import torchsnooper
+except ImportError:
+    torchsnooper = None
 from torch.utils.checkpoint import checkpoint
 
 SEQ_LEN = 40000
