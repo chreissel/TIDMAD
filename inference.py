@@ -166,25 +166,25 @@ def main():
 
 			if ifile >= low and (ifile < high):
 				if args.denoising_model == "punet":
-					model = torch.load(f'PUNet_{low}_{high}.pth',map_location=DEVICE)
+					model = torch.load(f'PUNet_{low}_{high}.pth',map_location=DEVICE,weights_only=False)
 					model.eval()
 				elif args.denoising_model == "transformer":
-					model = torch.load(f'Transformer_{low}_{high}.pth',map_location=DEVICE)
+					model = torch.load(f'Transformer_{low}_{high}.pth',map_location=DEVICE,weights_only=False)
 					model.eval()
 				elif args.denoising_model == "fcnet":
-					model = torch.load(f'FCNet_{low}_{high}.pth',map_location=DEVICE)
+					model = torch.load(f'FCNet_{low}_{high}.pth',map_location=DEVICE,weights_only=False)
 					model.eval()
 				elif args.denoising_model == "wavenet":
 					if NFreqSplit:
-						model = torch.load(f'WaveNet_0_20.pth',map_location=DEVICE)
+						model = torch.load(f'WaveNet_0_20.pth',map_location=DEVICE,weights_only=False)
 					else:
-						model = torch.load(f'WaveNet_{low}_{high}.pth',map_location=DEVICE)
+						model = torch.load(f'WaveNet_{low}_{high}.pth',map_location=DEVICE,weights_only=False)
 					model.eval()
 				elif args.denoising_model == "rnn":
-					model = torch.load(f'RNN_{low}_{high}.pth',map_location=DEVICE)
+					model = torch.load(f'RNN_{low}_{high}.pth',map_location=DEVICE,weights_only=False)
 					model.eval()
 				elif args.denoising_model == "s4denois":
-					model = torch.load(f'S4Denois_{low}_{high}.pth',map_location=DEVICE)
+					model = torch.load(f'S4Denois_{low}_{high}.pth',map_location=DEVICE,weights_only=False)
 					model.eval()
 				else:
 					'''
