@@ -142,10 +142,10 @@ def main(args):
         elif args.denoising_model == "fcnet":
             mname = "FCNet"
 
-        model1 = torch.load(f'{mname}_0_4.pth',map_location=DEVICE)
-        model2 = torch.load(f'{mname}_4_10.pth',map_location=DEVICE)
-        model3 = torch.load(f'{mname}_10_15.pth',map_location=DEVICE)
-        model4 = torch.load(f'{mname}_15_20.pth',map_location=DEVICE)
+        model1 = torch.load(f'{mname}_0_4.pth',map_location=DEVICE,weights_only=False)
+        model2 = torch.load(f'{mname}_4_10.pth',map_location=DEVICE,weights_only=False)
+        model3 = torch.load(f'{mname}_10_15.pth',map_location=DEVICE,weights_only=False)
+        model4 = torch.load(f'{mname}_15_20.pth',map_location=DEVICE,weights_only=False)
 
         model1.eval()
         model2.eval()
