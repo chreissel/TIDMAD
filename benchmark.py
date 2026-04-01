@@ -145,11 +145,12 @@ parser.add_argument('--denoising_model', '-m', type=str, default='punet', help='
 parser.add_argument('-c', '--coarse', action='store_true', help='Running a coarse scan instead of fine scan to compute denoising score.')
 parser.add_argument('-p', '--parallel', action='store_true', help='Running the denoising score calculation with multiprocessing.')
 parser.add_argument('-w', '--num_workers', type=int,  help='maximum number of workers for parallel processing, default: 32', default=8)
-args = parser.parse_args()
+parser.add_argument('--file_low', type=int, default=0, help='First file index to include (default: 0). Use with --file_high to score a specific frequency band.')
+parser.add_argument('--file_high', type=int, default=20, help='Last file index (exclusive) to include (default: 20). Bands: 0-4, 4-10, 10-15, 15-20.')
 args = parser.parse_args()
 
 file_list = []
-for i in range(20):
+for i in range(args.file_low, args.file_high):
     if i<10:
         fname = f"abra_validation_denoised_{args.denoising_model}_000{i}.h5"
     elif i<100:
@@ -163,4 +164,5 @@ for i in range(20):
 print(file_list)
 score = calculateBenchmark(args.data_dir+"/", file_list, args)
 is_coarse = "Coarse" if args.coarse else "Fine"
-print(f"{is_coarse} Denoising Score for Model {args.denoising_model}: {score}")
+band_label = f"files {args.file_low}-{args.file_high}" if (args.file_low != 0 or args.file_high != 20) else "all files"
+print(f"{is_coarse} Denoising Score for Model {args.denoising_model} ({band_label}): {score}")
